@@ -2,9 +2,13 @@ import React, { useState, useRef, useEffect } from 'react'
 
 function App() {
   const [hasStarted, setHasStarted] = useState(false)
-  const [targetColor, setTargetColor] = useState('#34D399')
-  const [scannedColor, setScannedColor] = useState(null) // Stores the color the user actually scans
+  const [targetColor, setTargetColor] = useState('#34D399') // Emerald Green
+  const [scannedColor, setScannedColor] = useState(null)
   const [cameraError, setCameraError] = useState(null)
+  
+  // Game state controls
+  const [isMatch, setIsMatch] = useState(false)
+  const [hasCalculated, setHasCalculated] = useState(false)
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -14,7 +18,7 @@ function App() {
       startCamera()
     } else {
       stopCamera()
-      setScannedColor(null) // Reset scanner when quitting
+      resetGameState()
     }
     return () => stopCamera()
   }, [hasStarted])
@@ -44,48 +48,79 @@ function App() {
     }
   }
 
-  // CORE ENGINE FUNCTION: Snaps a frame and extracts pixel values
+  function resetGameState() {
+    setScannedColor(null)
+    setIsMatch(false)
+    setHasCalculated(false)
+  }
+
+  // Generates a random color for the next round challenge
+  function generateNextChallenge() {
+    const randomHex = "#" + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0').toUpperCase()
+    setTargetColor(randomHex)
+    resetGameState()
+  }
+
   function captureAndAnalyzeColor() {
     if (!videoRef.current) return
 
-    const video = videoRef.current;
-    
-    // 1. Dynamically create a hidden canvas sketchpad in system memory
+    const video = videoRef.current
     const canvas = document.createElement('canvas')
-    
-    // Set the canvas dimensions to perfectly match the internal dimensions of the video stream
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // 2. Draw the current exact freeze-frame of the live video directly onto our canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-    // 3. Find the exact mathematical center coordinates of the canvas box
     const centerX = Math.floor(canvas.width / 2)
     const centerY = Math.floor(canvas.height / 2)
-
-    // 4. Extract the pixel matrix block data from that central point (1 pixel wide, 1 pixel high)
     const pixelData = ctx.getImageData(centerX, centerY, 1, 1).data
 
-    const r = pixelData[0] // Red Value
-    const g = pixelData[1] // Green Value
-    const b = pixelData[2] // Blue Value
+    const r = pixelData[0]
+    const g = pixelData[1]
+    const b = pixelData[2]
 
-    // 5. Convert the raw RGB numbers into a standard web Hex code string
     const hexColor = rgbToHex(r, g, b)
-    
-    // Save the color to our app memory to trigger the UI update!
     setScannedColor(hexColor)
+
+    // CORE MATCH VALIDATION SEQUENCE
+    // 1. Break target hex down to RGB components
+    const targetRGB = hexToRgb(targetColor)
+    
+    // 2. Compute Euclidean distance variance between target and scanned arrays
+    const distance = Math.sqrt(
+      Math.pow(targetRGB.r - r, 2) +
+      Math.pow(targetRGB.g - g, 2) +
+      Math.pow(targetRGB.b - b, 2)
+    )
+
+    // 3. Define sensitivity threshold (Under 45 represents roughly a 15% color shade tolerance gap)
+    const MATCH_THRESHOLD = 45
+    
+    if (distance <= MATCH_THRESHOLD) {
+      setIsMatch(true)
+    } else {
+      setIsMatch(false)
+    }
+    setHasCalculated(true)
   }
 
-  // Helper utility function: Converts raw integer components into clean hex strings
+  // Helper Utility: Decodes Hex strings back to integer channels
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 }
+  }
+
   function rgbToHex(r, g, b) {
     return "#" + [r, g, b].map(x => {
-      const hex = x.toString(16) // Convert number to base-16
-      return hex.length === 1 ? "0" + hex : hex // Ensure 2-digit padding
+      const hex = x.toString(16)
+      return hex.length === 1 ? "0" + hex : hex
     }).join("").toUpperCase()
   }
 
@@ -112,7 +147,7 @@ function App() {
         /* GAMEPLAY SCREEN */
         <div className="bg-slate-800 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-slate-700 flex flex-col gap-4">
           
-          {/* Colors Panel Section */}
+          {/* Colors Panel */}
           <div className="grid grid-cols-2 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-700">
             <div className="flex flex-col items-center justify-center border-r border-slate-700 pr-2">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Target Color</p>
@@ -123,7 +158,7 @@ function App() {
             <div className="flex flex-col items-center justify-center pl-2">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Your Scan</p>
               <div 
-                className="w-14 h-14 rounded-xl border-2 border-slate-600 shadow-md mb-1 flex items-center justify-center text-xs font-semibold text-slate-500 bg-slate-800 transition-all duration-200"
+                className="w-14 h-14 rounded-xl border-2 border-slate-600 shadow-md mb-1 flex items-center justify-center text-xs font-semibold text-slate-500 bg-slate-800"
                 style={{ backgroundColor: scannedColor || 'transparent' }}
               >
                 {!scannedColor && '?'}
@@ -132,7 +167,7 @@ function App() {
             </div>
           </div>
 
-          {/* Camera Feed Window container */}
+          {/* Camera Feed Window */}
           <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center">
             {cameraError ? (
               <p className="text-sm text-red-400 p-4 text-center">{cameraError}</p>
@@ -144,6 +179,32 @@ function App() {
               <div className="w-12 h-12 border-2 border-dashed border-white rounded-lg shadow-lg opacity-60 bg-white/10" />
             </div>
           </div>
+
+          {/* EVALUATION RESULTS CARD PANEL */}
+          {hasCalculated && (
+            <div className={`p-4 rounded-xl border text-center font-bold animate-fade-in ${
+              isMatch 
+                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' 
+                : 'bg-rose-500/10 border-rose-500 text-rose-400'
+            }`}>
+              {isMatch ? (
+                <div>
+                  <p className="text-lg">🎯 Match Found! Beautifully Done!</p>
+                  <button 
+                    onClick={generateNextChallenge}
+                    className="mt-2 text-xs bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-1.5 px-4 rounded-lg transition-all cursor-pointer"
+                  >
+                    Next Target Challenge
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-lg">❌ Shade Variance Too High. Try Again!</p>
+                  <p className="text-xs font-normal text-slate-400 mt-1">Adjust your proximity or ambient lighting.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Controls Bar */}
           <div className="grid grid-cols-2 gap-3">
