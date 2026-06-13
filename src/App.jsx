@@ -3,11 +3,10 @@ import React, { useState, useRef, useEffect } from 'react'
 function App() {
   const [hasStarted, setHasStarted] = useState(false)
   const [targetColor, setTargetColor] = useState('#34D399')
+  const [scannedColor, setScannedColor] = useState(null) // Stores the color the user actually scans
   const [cameraError, setCameraError] = useState(null)
 
-  
   const videoRef = useRef(null)
-  
   const streamRef = useRef(null)
 
   useEffect(() => {
@@ -15,33 +14,20 @@ function App() {
       startCamera()
     } else {
       stopCamera()
+      setScannedColor(null) // Reset scanner when quitting
     }
-
     return () => stopCamera()
   }, [hasStarted])
 
-  // Function 1: Request access and connect the hardware stream to our video element
   async function startCamera() {
     setCameraError(null)
-    
-    // Configuration details 
     const constraints = {
-      video: { 
-        facingMode: 'environment', 
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     }
-
     try {
-      // Direct request call to the device hardware APIs
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      
-      // Store the stream 
       streamRef.current = stream
-
-      // Injecting the raw camera stream data directly to physical HTML video tag pointer
       if (videoRef.current) {
         videoRef.current.srcObject = stream
       }
@@ -51,12 +37,56 @@ function App() {
     }
   }
 
-  // Function 2: Safely shut down the camera stream lines to save battery and system memory
   function stopCamera() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
       streamRef.current = null
     }
+  }
+
+  // CORE ENGINE FUNCTION: Snaps a frame and extracts pixel values
+  function captureAndAnalyzeColor() {
+    if (!videoRef.current) return
+
+    const video = videoRef.current;
+    
+    // 1. Dynamically create a hidden canvas sketchpad in system memory
+    const canvas = document.createElement('canvas')
+    
+    // Set the canvas dimensions to perfectly match the internal dimensions of the video stream
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // 2. Draw the current exact freeze-frame of the live video directly onto our canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+    // 3. Find the exact mathematical center coordinates of the canvas box
+    const centerX = Math.floor(canvas.width / 2)
+    const centerY = Math.floor(canvas.height / 2)
+
+    // 4. Extract the pixel matrix block data from that central point (1 pixel wide, 1 pixel high)
+    const pixelData = ctx.getImageData(centerX, centerY, 1, 1).data
+
+    const r = pixelData[0] // Red Value
+    const g = pixelData[1] // Green Value
+    const b = pixelData[2] // Blue Value
+
+    // 5. Convert the raw RGB numbers into a standard web Hex code string
+    const hexColor = rgbToHex(r, g, b)
+    
+    // Save the color to our app memory to trigger the UI update!
+    setScannedColor(hexColor)
+  }
+
+  // Helper utility function: Converts raw integer components into clean hex strings
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map(x => {
+      const hex = x.toString(16) // Convert number to base-16
+      return hex.length === 1 ? "0" + hex : hex // Ensure 2-digit padding
+    }).join("").toUpperCase()
   }
 
   return (
@@ -82,38 +112,40 @@ function App() {
         /* GAMEPLAY SCREEN */
         <div className="bg-slate-800 p-6 rounded-2xl shadow-2xl max-w-md w-full border border-slate-700 flex flex-col gap-4">
           
-          <div className="flex items-center justify-between bg-slate-900 p-4 rounded-xl border border-slate-700">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Target Color</p>
-              <h2 className="text-lg font-bold">Find this shade!</h2>
+          {/* Colors Panel Section */}
+          <div className="grid grid-cols-2 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-700">
+            <div className="flex flex-col items-center justify-center border-r border-slate-700 pr-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Target Color</p>
+              <div className="w-14 h-14 rounded-xl border-2 border-white shadow-md mb-1" style={{ backgroundColor: targetColor }} />
+              <span className="text-xs font-mono font-bold text-slate-300">{targetColor}</span>
             </div>
-            <div 
-              className="w-12 h-12 rounded-xl border-2 border-white shadow-inner" 
-              style={{ backgroundColor: targetColor }}
-            />
+            
+            <div className="flex flex-col items-center justify-center pl-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Your Scan</p>
+              <div 
+                className="w-14 h-14 rounded-xl border-2 border-slate-600 shadow-md mb-1 flex items-center justify-center text-xs font-semibold text-slate-500 bg-slate-800 transition-all duration-200"
+                style={{ backgroundColor: scannedColor || 'transparent' }}
+              >
+                {!scannedColor && '?'}
+              </div>
+              <span className="text-xs font-mono font-bold text-slate-300">{scannedColor || '----'}</span>
+            </div>
           </div>
 
-          {/* Camera View Window Container */}
+          {/* Camera Feed Window container */}
           <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center">
             {cameraError ? (
               <p className="text-sm text-red-400 p-4 text-center">{cameraError}</p>
             ) : (
-              /* The physical HTML5 Video Element player */
-              <video 
-                ref={videoRef} // This links our JavaScript pointer directly to this tag
-                autoPlay 
-                playsInline 
-                className="w-full h-full object-cover"
-              />
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
             )}
             
-            {/* Target Reticle Overlay: A central targeting box for scanning items */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="w-12 h-12 border-2 border-dashed border-white rounded-lg shadow-lg opacity-60 bg-white/10" />
             </div>
           </div>
 
-          {/* Action buttons control bar */}
+          {/* Controls Bar */}
           <div className="grid grid-cols-2 gap-3">
             <button 
               onClick={() => setHasStarted(false)}
@@ -121,7 +153,10 @@ function App() {
             >
               Quit Run
             </button>
-            <button className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-md">
+            <button 
+              onClick={captureAndAnalyzeColor}
+              className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-md"
+            >
               Capture Scan
             </button>
           </div>
