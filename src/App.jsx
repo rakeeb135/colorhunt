@@ -2,9 +2,13 @@ import React, { useState, useRef, useEffect } from 'react'
 
 function App() {
   const [hasStarted, setHasStarted] = useState(false)
-  const [targetColor, setTargetColor] = useState('#34D399') // Emerald Green
+  const [targetColor, setTargetColor] = useState(()=> generateRandomHexColor()) // Emerald Green
   const [scannedColor, setScannedColor] = useState(null)
   const [cameraError, setCameraError] = useState(null)
+
+function generateRandomHexColor(){
+  return "#" + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0').toUpperCase()
+}
   
   // Game state controls
   const [isMatch, setIsMatch] = useState(false)
@@ -57,7 +61,7 @@ function App() {
   // Generates a random color for the next round challenge
   function generateNextChallenge() {
     const randomHex = "#" + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0').toUpperCase()
-    setTargetColor(randomHex)
+    setTargetColor(generateRandomHexColor())
     resetGameState()
   }
 
